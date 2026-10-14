@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#1e40af">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Biblioteca 6A">
+  <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Biblioteca de Aula 6º A · Gestión de Préstamos</title>
 <style>
   :root {
@@ -669,6 +675,13 @@ document.querySelectorAll('.modal').forEach(m => {
 });
 
 // Init
+// Registrar Service Worker para PWA
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(err => console.log("SW error:", err));
+  });
+}
+
 loadData();
 renderAll();
 </script>
