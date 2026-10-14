@@ -68,6 +68,7 @@
   .btn-danger { background: var(--danger); color: white; }
   .btn-outline { background: white; border: 1px solid var(--border); color: var(--text); }
   .btn-outline:hover { background: #f8fafc; }
+  .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.8rem; }
   .stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -122,8 +123,8 @@
     font-size: 0.95rem;
   }
   .loan-box.empty { background: #f1f5f9; border-left-color: #94a3b8; }
-  .books-list { margin: 0.5rem 0; padding-left: 1.2rem; font-size: 0.9rem; }
-  .books-list li { margin-bottom: 0.2rem; }
+  .books-list { margin: 0.5rem 0; padding-left: 0; list-style: none; font-size: 0.9rem; }
+  .books-list li { margin-bottom: 0.35rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
   .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
   .modal {
     display: none;
@@ -170,6 +171,7 @@
     border-radius: 12px;
     overflow: hidden;
     box-shadow: var(--shadow);
+    margin-bottom: 1.5rem;
   }
   .ficha-table th, .ficha-table td {
     padding: 0.75rem 1rem;
@@ -186,6 +188,13 @@
   }
   .badge-yes { background: #dcfce7; color: #166534; }
   .badge-no { background: #fee2e2; color: #991b1b; }
+  .summary-box {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+  }
   footer {
     text-align: center;
     padding: 2rem;
@@ -312,6 +321,7 @@ const INITIAL_DATA = {
 let data = null;
 let currentStudentId = null;
 let searchTerm = "";
+let activeTab = "alumnos";
 
 function loadData() {
   const saved = localStorage.getItem('biblioteca6a');
@@ -329,6 +339,10 @@ function getStudent(id) {
   return data.students.find(s => s.id === id);
 }
 
+function normalize(str) {
+  return (str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 // ========== RENDER ==========
 function renderStats() {
   const totalStudents = data.students.length;
@@ -344,10 +358,11 @@ function renderStats() {
 }
 
 function renderAlumnos() {
+  const term = normalize(searchTerm);
   const filtered = data.students.filter(s => {
-    const full = (s.nombre + ' ' + s.apellidos).toLowerCase();
-    const books = s.aportados.join(' ').toLowerCase() + (s.prestamo_libro || '').toLowerCase();
-    return full.includes(searchTerm) || books.includes(searchTerm);
+    const full = normalize(s.nombre + ' ' + s.apellidos);
+    const books = normalize(s.aportados.join(' ') + ' ' + (s.prestamo_libro || ''));
+    return !term || full.includes(term) || books.includes(term);
   });
 
   const html = filtered.map(s => {
@@ -357,7 +372,7 @@ function renderAlumnos() {
       : `<div class="loan-box empty">No tiene libro prestado</div>`;
 
     const booksHtml = s.aportados.length
-      ? `<ul class="books-list">${s.aportados.map(b => `<li>${b}</li>`).join('')}</ul>`
+      ? `<ul class="books-list">${s.aportados.map((b, i) => `<li><span>${b}</span> <button class="btn btn-danger btn-sm" onclick="removeBook(${s.id}, ${i})" title="Quitar este libro">✕</button></li>`).join('')}</ul>`
       : `<p style="color:var(--muted);font-size:0.9rem;margin:0.5rem 0;">No ha aportado libros aún</p>`;
 
     return `
@@ -372,16 +387,16 @@ function renderAlumnos() {
                <button class="btn btn-outline" onclick="openLoan(${s.id})">Cambiar libro</button>`
             : `<button class="btn btn-primary" onclick="openLoan(${s.id})">Prestar libro</button>`}
           <button class="btn btn-success" onclick="openAddBook(${s.id})">+ Aportar libro</button>
-          ${s.aportados.length ? `<button class="btn btn-outline" onclick="removeLastBook(${s.id})">Quitar último</button>` : ''}
         </div>
       </div>
     `;
   }).join('');
 
-  document.getElementById('view-alumnos').innerHTML = `<div class="grid">${html || '<p>No se encontraron alumnos.</p>'}</div>`;
+  document.getElementById('view-alumnos').innerHTML = `<div class="grid">${html || '<p>No se encontraron alumnos o libros que coincidan.</p>'}</div>`;
 }
 
 function renderCatalogo() {
+  const term = normalize(searchTerm);
   const bookMap = {};
   data.students.forEach(s => {
     s.aportados.forEach(book => {
@@ -390,7 +405,11 @@ function renderCatalogo() {
     });
   });
 
-  const books = Object.keys(bookMap).sort((a,b) => a.localeCompare(b, 'es'));
+  let books = Object.keys(bookMap).sort((a,b) => a.localeCompare(b, 'es'));
+  if (term) {
+    books = books.filter(b => normalize(b).includes(term) || bookMap[b].some(owner => normalize(owner).includes(term)));
+  }
+
   const html = books.map(book => {
     const owners = bookMap[book];
     return `<div class="catalog-item">
@@ -401,18 +420,33 @@ function renderCatalogo() {
 
   document.getElementById('view-catalogo').innerHTML = `
     <h2 style="margin-top:0;">Catálogo de libros de la biblioteca</h2>
-    <p style="color:var(--muted);">${books.length} títulos únicos aportados por los alumnos</p>
-    ${html || '<p>No hay libros en la biblioteca todavía.</p>'}
+    <p style="color:var(--muted);">${books.length} títulos ${term ? 'que coinciden' : 'únicos aportados por los alumnos'}</p>
+    ${html || '<p>No hay libros que coincidan con la búsqueda.</p>'}
   `;
 }
 
 function renderFichas() {
-  let html = '';
+  // Resumen de totales por alumno
+  let summaryHtml = '<div class="summary-box"><h3 style="margin-top:0;">Resumen de fichas entregadas</h3><table class="ficha-table"><thead><tr><th>#</th><th>Alumno</th><th>Total fichas (3 trimestres)</th></tr></thead><tbody>';
+  data.students.forEach(s => {
+    let count = 0;
+    for (const t of ['1','2','3']) {
+      if (data.fichas[t] && data.fichas[t][String(s.id)]) count++;
+    }
+    summaryHtml += `<tr><td>${s.id}</td><td>${s.nombre} ${s.apellidos}</td><td><strong>${count}</strong> / 3</td></tr>`;
+  });
+  summaryHtml += '</tbody></table></div>';
+
+  let html = summaryHtml;
   for (const trim of ['1','2','3']) {
     const fichas = data.fichas[trim] || {};
-    html += `<h3>Fichas de lectura · ${trim}er Trimestre</h3>
+    const delivered = Object.keys(fichas).length;
+    html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+      <h3 style="margin:0;">Fichas de lectura · ${trim}er Trimestre <small style="color:var(--muted);">(${delivered} entregadas)</small></h3>
+      <button class="btn btn-danger btn-sm" onclick="resetTrimestre('${trim}')">🔄 Reset trimestre</button>
+    </div>
     <table class="ficha-table">
-      <thead><tr><th>#</th><th>Alumno</th><th>Libro de la ficha</th><th>Estado</th></tr></thead>
+      <thead><tr><th>#</th><th>Alumno</th><th>Libro de la ficha</th><th>Estado</th><th></th></tr></thead>
       <tbody>`;
     data.students.forEach(s => {
       const book = fichas[String(s.id)];
@@ -421,9 +455,10 @@ function renderFichas() {
         <td>${s.nombre} ${s.apellidos}</td>
         <td>${book || '—'}</td>
         <td>${book ? '<span class="badge badge-yes">Entregada</span>' : '<span class="badge badge-no">Pendiente</span>'}</td>
+        <td>${book ? `<button class="btn btn-outline btn-sm" onclick="clearFicha('${trim}', ${s.id})">Quitar</button>` : ''}</td>
       </tr>`;
     });
-    html += '</tbody></table><br>';
+    html += '</tbody></table>';
   }
   document.getElementById('view-fichas').innerHTML = html;
 }
@@ -490,10 +525,27 @@ function addContributedBook() {
   renderAll();
 }
 
-function removeLastBook(id) {
-  const s = getStudent(id);
-  if (s.aportados.length && confirm('¿Quitar el último libro aportado?')) {
-    s.aportados.pop();
+function removeBook(studentId, index) {
+  const s = getStudent(studentId);
+  if (confirm(`¿Quitar el libro "${s.aportados[index]}" de la biblioteca de este alumno?`)) {
+    s.aportados.splice(index, 1);
+    saveData();
+    renderAll();
+  }
+}
+
+function clearFicha(trim, studentId) {
+  if (!data.fichas[trim]) return;
+  if (confirm('¿Quitar esta ficha?')) {
+    delete data.fichas[trim][String(studentId)];
+    saveData();
+    renderAll();
+  }
+}
+
+function resetTrimestre(trim) {
+  if (confirm(`¿Resetear todas las fichas del ${trim}er trimestre? Esta acción no se puede deshacer.`)) {
+    data.fichas[trim] = {};
     saveData();
     renderAll();
   }
@@ -508,17 +560,19 @@ document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    const name = tab.dataset.tab;
-    document.getElementById('view-alumnos').style.display = name === 'alumnos' ? 'block' : 'none';
-    document.getElementById('view-catalogo').style.display = name === 'catalogo' ? 'block' : 'none';
-    document.getElementById('view-fichas').style.display = name === 'fichas' ? 'block' : 'none';
+    activeTab = tab.dataset.tab;
+    document.getElementById('view-alumnos').style.display = activeTab === 'alumnos' ? 'block' : 'none';
+    document.getElementById('view-catalogo').style.display = activeTab === 'catalogo' ? 'block' : 'none';
+    document.getElementById('view-fichas').style.display = activeTab === 'fichas' ? 'block' : 'none';
   });
 });
 
-// Search
+// Search — updates the currently visible view
 document.getElementById('search').addEventListener('input', (e) => {
-  searchTerm = e.target.value.toLowerCase().trim();
-  renderAlumnos();
+  searchTerm = e.target.value.trim();
+  if (activeTab === 'alumnos') renderAlumnos();
+  else if (activeTab === 'catalogo') renderCatalogo();
+  else renderFichas(); // fichas no se filtran por ahora, pero se puede ampliar
 });
 
 // Export / Import / Reset
@@ -539,6 +593,7 @@ function importData(ev) {
       const imported = JSON.parse(reader.result);
       if (imported.students && Array.isArray(imported.students)) {
         data = imported;
+        if (!data.fichas) data.fichas = { "1": {}, "2": {}, "3": {} };
         saveData();
         renderAll();
         alert('Datos importados correctamente');
