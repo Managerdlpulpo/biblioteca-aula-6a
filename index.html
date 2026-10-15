@@ -305,6 +305,29 @@
   </div>
 </div>
 
+<!-- Modal Añadir ficha de lectura -->
+<div class="modal" id="modalAddFicha">
+  <div class="modal-content">
+    <h3>Añadir ficha de lectura</h3>
+    <div class="form-group">
+      <label>Alumno</label>
+      <div id="modalFichaStudent" style="font-weight:600;"></div>
+    </div>
+    <div class="form-group">
+      <label>Trimestre</label>
+      <div id="modalFichaTrim" style="font-weight:600;"></div>
+    </div>
+    <div class="form-group">
+      <label>Título del libro de la ficha</label>
+      <input type="text" id="modalFichaTitle" placeholder="Ej: Diario de Greg 5">
+    </div>
+    <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-success" onclick="saveFicha()">Guardar ficha (+0,25 pts)</button>
+    </div>
+  </div>
+</div>
+
 <footer>
   Datos guardados automáticamente en este navegador · Cada ficha del trimestre actual vale 0,25 puntos
 </footer>
@@ -414,6 +437,8 @@ function renderAlumnos() {
 
   const html = filtered.map(s => {
     const hasLoan = !!s.prestamo_libro;
+    const trim = data.currentTrimestre || "1";
+    const hasFicha = !!(data.fichas[trim] && data.fichas[trim][String(s.id)]);
     const loanHtml = hasLoan
       ? `<div class="loan-box"><strong>📖 ${s.prestamo_libro}</strong><br><small>${s.prestamo_fecha || 'sin fecha'}</small></div>`
       : `<div class="loan-box empty">No tiene libro prestado</div>`;
@@ -438,6 +463,9 @@ function renderAlumnos() {
                <button class="btn btn-outline" onclick="openLoan(${s.id})">Cambiar libro</button>`
             : `<button class="btn btn-primary" onclick="openLoan(${s.id})">Prestar libro</button>`}
           <button class="btn btn-success" onclick="openAddBook(${s.id})">+ Aportar libro</button>
+          ${hasFicha
+            ? `<button class="btn btn-outline" onclick="removeFicha(${s.id})">Quitar ficha</button>`
+            : `<button class="btn btn-primary" onclick="openAddFicha(${s.id})">+ Añadir ficha</button>`}
         </div>
       </div>
     `;
@@ -577,6 +605,38 @@ function addContributedBook() {
   saveData();
   closeModal();
   renderAll();
+}
+
+function openAddFicha(id) {
+  currentStudentId = id;
+  const s = getStudent(id);
+  const trim = data.currentTrimestre || "1";
+  document.getElementById('modalFichaStudent').textContent = s.nombre + ' ' + s.apellidos;
+  document.getElementById('modalFichaTrim').textContent = trim + 'er Trimestre';
+  document.getElementById('modalFichaTitle').value = '';
+  document.getElementById('modalAddFicha').classList.add('show');
+  document.getElementById('modalFichaTitle').focus();
+}
+
+function saveFicha() {
+  const title = document.getElementById('modalFichaTitle').value.trim();
+  if (!title) { alert('Escribe el título del libro de la ficha'); return; }
+  const trim = data.currentTrimestre || "1";
+  if (!data.fichas[trim]) data.fichas[trim] = {};
+  data.fichas[trim][String(currentStudentId)] = title;
+  saveData();
+  closeModal();
+  renderAll();
+}
+
+function removeFicha(id) {
+  const trim = data.currentTrimestre || "1";
+  if (!data.fichas[trim] || !data.fichas[trim][String(id)]) return;
+  if (confirm('¿Quitar la ficha de este alumno en el trimestre actual? Se restarán 0,25 puntos.')) {
+    delete data.fichas[trim][String(id)];
+    saveData();
+    renderAll();
+  }
 }
 
 function removeBook(studentId, index) {
