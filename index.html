@@ -225,9 +225,49 @@
     .grid { grid-template-columns: 1fr; }
     header { padding: 1rem; }
   }
+  /* Login overlay */
+  #loginOverlay {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(135deg, #1e40af, #3b82f6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+  }
+  #loginOverlay.hidden { display: none; }
+  .login-box {
+    background: white;
+    padding: 2rem;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 380px;
+    text-align: center;
+    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.2);
+  }
+  .login-box h2 { margin: 0 0 0.5rem 0; color: #1e40af; }
+  .login-box p { color: #64748b; margin: 0 0 1.5rem 0; font-size: 0.95rem; }
+  .login-box input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+  }
+  .login-error { color: #dc2626; font-size: 0.9rem; min-height: 1.2rem; margin-bottom: 0.5rem; }
 </style>
 </head>
 <body>
+<div id="loginOverlay">
+  <div class="login-box">
+    <h2>📚 Biblioteca de Aula</h2>
+    <p>Introduce la contraseña para acceder</p>
+    <input type="password" id="loginPassword" placeholder="Contraseña" autocomplete="current-password">
+    <div class="login-error" id="loginError"></div>
+    <button class="btn btn-primary" style="width:100%;" onclick="checkPassword()">Entrar</button>
+  </div>
+</div>
 <header>
   <h1>📚 Biblioteca de Aula · 6º A</h1>
   <p>Curso 2026-2027 · Gestión de préstamos y aportaciones</p>
@@ -337,6 +377,36 @@
 </footer>
 
 <script>
+// ========== ACCESO PROTEGIDO ==========
+const PASS_HASH = "c41b29b08f8a8ef4095fb000dccdbd0479cb4866635135b5bffdc727a7229f25";
+
+async function sha256(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function checkPassword() {
+  const input = document.getElementById("loginPassword").value;
+  const err = document.getElementById("loginError");
+  err.textContent = "";
+  if (!input) { err.textContent = "Escribe la contraseña"; return; }
+  const hash = await sha256(input);
+  if (hash === PASS_HASH) {
+    sessionStorage.setItem("biblioteca_auth", "ok");
+    document.getElementById("loginOverlay").classList.add("hidden");
+    document.getElementById("loginPassword").value = "";
+    initApp();
+  } else {
+    err.textContent = "Contraseña incorrecta";
+    document.getElementById("loginPassword").value = "";
+    document.getElementById("loginPassword").focus();
+  }
+}
+
+document.getElementById("loginPassword").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") checkPassword();
+});
+
 // ========== DATOS INICIALES ==========
 const INITIAL_DATA = {
   "students": [
@@ -948,15 +1018,22 @@ function parseCSVLine(line) {
 }
 
 // Init
-// Registrar Service Worker para PWA
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
+function initApp() {
+  // Registrar Service Worker para PWA
+  if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(err => console.log("SW error:", err));
-  });
+  }
+  loadData();
+  renderAll();
 }
 
-loadData();
-renderAll();
+// Check if already authenticated in this session
+if (sessionStorage.getItem("biblioteca_auth") === "ok") {
+  document.getElementById("loginOverlay").classList.add("hidden");
+  initApp();
+} else {
+  setTimeout(() => document.getElementById("loginPassword").focus(), 100);
+}
 </script>
 </body>
 </html>
