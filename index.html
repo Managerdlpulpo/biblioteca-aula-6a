@@ -250,7 +250,6 @@
     <button class="btn btn-outline" onclick="exportCSV()">📊 Exportar CSV (Google Sheets)</button>
     <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">⬆️ Importar</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
-    <button class="btn btn-warning" onclick="resetData()">🔄 Restaurar datos 6ºA</button>
     <button class="btn btn-danger" onclick="resetEmpty()" style="margin-left:auto;">🗑️ Vaciar todos los datos</button>
   </div>
 
@@ -756,14 +755,6 @@ function importData(ev) {
   };
   reader.readAsText(file);
   ev.target.value = '';
-}
-
-function resetData() {
-  if (confirm('¿Restaurar los datos originales del Excel? Se perderán los cambios no exportados.')) {
-    localStorage.removeItem('biblioteca6a');
-    loadData();
-    renderAll();
-  }
 }
 
 function resetEmpty() {
