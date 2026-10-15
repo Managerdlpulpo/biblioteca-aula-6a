@@ -599,7 +599,12 @@ function renderAlumnos() {
 function renderCatalogo() {
   const term = normalize(searchTerm);
   const bookMap = {};
+  const loanedBooks = new Set();
+
   data.students.forEach(s => {
+    if (s.prestamo_libro) {
+      loanedBooks.add(s.prestamo_libro.trim());
+    }
     s.aportados.forEach(book => {
       if (!bookMap[book]) bookMap[book] = [];
       bookMap[book].push(s.nombre + ' ' + s.apellidos);
@@ -613,9 +618,18 @@ function renderCatalogo() {
 
   const html = books.map(book => {
     const owners = bookMap[book];
+    const isLoaned = loanedBooks.has(book.trim());
+    const statusBadge = isLoaned
+      ? `<span class="badge badge-no">No disponible</span>`
+      : `<span class="badge badge-yes">Disponible</span>`;
+    const who = isLoaned
+      ? data.students.find(s => s.prestamo_libro && s.prestamo_libro.trim() === book.trim())
+      : null;
+    const extra = who ? `<br><small style="color:#dc2626;">Prestado a: ${who.nombre} ${who.apellidos}</small>` : '';
+
     return `<div class="catalog-item">
-      <div><strong>${book}</strong><br><small style="color:var(--muted);">Aportado por: ${owners.join(', ')}</small></div>
-      <span class="badge badge-yes">${owners.length}</span>
+      <div><strong>${book}</strong><br><small style="color:var(--muted);">Aportado por: ${owners.join(', ')}</small>${extra}</div>
+      <div style="text-align:right;">${statusBadge}<br><span class="badge" style="background:#f1f5f9;color:#64748b;margin-top:4px;">${owners.length}</span></div>
     </div>`;
   }).join('');
 
