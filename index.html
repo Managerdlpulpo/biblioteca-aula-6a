@@ -247,8 +247,11 @@
       </select>
     </label>
     <button class="btn btn-outline" onclick="exportData()">⬇️ Exportar JSON</button>
-    <button class="btn btn-outline" onclick="exportCSV()">📊 Exportar CSV (Google Sheets)</button>
-    <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">⬆️ Importar</button>
+    <button class="btn btn-outline" onclick="exportCSV()">📊 Exportar CSV</button>
+    <button class="btn btn-outline" onclick="downloadTemplate()">📥 Descargar plantilla CSV</button>
+    <button class="btn btn-success" onclick="document.getElementById('importCSV').click()">⬆️ Importar plantilla CSV</button>
+    <input type="file" id="importCSV" accept=".csv,text/csv" style="display:none" onchange="importCSV(event)">
+    <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">⬆️ Importar JSON</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
     <button class="btn btn-danger" onclick="resetEmpty()" style="margin-left:auto;">🗑️ Vaciar todos los datos</button>
   </div>
@@ -824,10 +827,125 @@ function resetEmpty() {
   }
 }
 
-// Close modal on background click
-document.querySelectorAll('.modal').forEach(m => {
-  m.addEventListener('click', (e) => { if (e.target === m) closeModal(); });
-});
+// ========== PLANTILLA CSV ==========
+function downloadTemplate() {
+  const header = 'ID,Nombre,Apellidos,Prestamo_Libro,Prestamo_Fecha,Libros_Aportados,Fichas_1er,Fichas_2o,Fichas_3er\n';
+  const example1 = '1,Ana,García López,,,"Libro 1 | Libro 2",Diario de Greg 5,,\n';
+  const example2 = '2,Luis,Martín Pérez,Los Futbolísimos 20,2026-10-15,"Harry Potter 1 | Harry Potter 2",Los Once 1,Diario de Greg 4,\n';
+  const csv = '\uFEFF' + header + example1 + example2;
+  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'plantilla_biblioteca_aula.csv';
+  a.click();
+}
+
+function importCSV(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      let text = reader.result;
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // remove BOM
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { alert('El archivo está vacío o no tiene datos'); return; }
+
+      const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+      const idx = {
+        id: headers.indexOf('id'),
+        nombre: headers.indexOf('nombre'),
+        apellidos: headers.indexOf('apellidos'),
+        prestamo_libro: headers.findIndex(h => h.includes('prestamo') && h.includes('libro')),
+        prestamo_fecha: headers.findIndex(h => h.includes('prestamo') && h.includes('fecha')),
+        aportados: headers.findIndex(h => h.includes('aportado')),
+        f1: headers.findIndex(h => h.includes('ficha') && (h.includes('1') || h.includes('1er'))),
+        f2: headers.findIndex(h => h.includes('ficha') && (h.includes('2') || h.includes('2o') || h.includes('2º'))),
+        f3: headers.findIndex(h => h.includes('ficha') && (h.includes('3') || h.includes('3er')))
+      };
+
+      if (idx.nombre === -1 || idx.apellidos === -1) {
+        alert('La plantilla debe tener las columnas Nombre y Apellidos');
+        return;
+      }
+
+      const students = [];
+      const fichas = {"1": {}, "2": {}, "3": {}};
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCSVLine(lines[i]);
+        if (!cols.length) continue;
+        const id = idx.id >= 0 && cols[idx.id] ? parseInt(cols[idx.id]) : (i);
+        const nombre = (cols[idx.nombre] || '').trim();
+        const apellidos = (cols[idx.apellidos] || '').trim();
+        if (!nombre && !apellidos) continue;
+
+        const aportadosRaw = idx.aportados >= 0 ? (cols[idx.aportados] || '') : '';
+        const aportados = aportadosRaw.split('|').map(b => b.trim()).filter(Boolean);
+
+        const student = {
+          id: id || i,
+          nombre,
+          apellidos,
+          prestamo_libro: idx.prestamo_libro >= 0 ? (cols[idx.prestamo_libro] || '').trim() || null : null,
+          prestamo_fecha: idx.prestamo_fecha >= 0 ? (cols[idx.prestamo_fecha] || '').trim() || null : null,
+          aportados
+        };
+        students.push(student);
+
+        // Fichas
+        const addFichas = (trimKey, colIdx) => {
+          if (colIdx < 0) return;
+          const raw = (cols[colIdx] || '').trim();
+          if (!raw) return;
+          const list = raw.split('|').map(f => f.trim()).filter(Boolean);
+          if (list.length) fichas[trimKey][String(student.id)] = list;
+        };
+        addFichas('1', idx.f1);
+        addFichas('2', idx.f2);
+        addFichas('3', idx.f3);
+      }
+
+      if (students.length === 0) { alert('No se encontraron alumnos válidos'); return; }
+
+      if (confirm(`Se van a cargar ${students.length} alumnos. ¿Continuar? Se reemplazarán los datos actuales.`)) {
+        data = {
+          students,
+          fichas,
+          currentTrimestre: data.currentTrimestre || "1"
+        };
+        saveData();
+        renderAll();
+        alert('Plantilla importada correctamente');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error al leer el CSV. Asegúrate de usar la plantilla descargada.');
+    }
+  };
+  reader.readAsText(file, 'UTF-8');
+  ev.target.value = '';
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (c === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  result.push(current);
+  return result;
+}
 
 // Init
 // Registrar Service Worker para PWA
