@@ -363,9 +363,9 @@ const INITIAL_DATA = {
     {"id":24,"nombre":"Jonathan David","apellidos":"Zapeta Pérez","prestamo_fecha":"2026-09-29","prestamo_libro":"Los Futbolísimos 19","aportados":["Paty Centella y el enigma de la roca lunar"]}
   ],
   "fichas": {
-    "1": {"2":"Diario de Greg 5","8":"Los Once 1","22":"Los Futbolísimos 25"},
-    "2": {"2":"Diario de Greg 5","22":"Los Futbolísimos 25"},
-    "3": {"2":"Diario de Greg 5","22":"Los Futbolísimos 25"}
+    "1": {"2":["Diario de Greg 5"],"8":["Los Once 1"],"22":["Los Futbolísimos 25"]},
+    "2": {"2":["Diario de Greg 5"],"22":["Los Futbolísimos 25"]},
+    "3": {"2":["Diario de Greg 5"],"22":["Los Futbolísimos 25"]}
   },
   "currentTrimestre": "1"
 };
@@ -383,6 +383,18 @@ function loadData() {
       data = JSON.parse(saved);
       if (!data.currentTrimestre) data.currentTrimestre = "1";
       if (!data.fichas) data.fichas = {"1":{},"2":{},"3":{}};
+      // Migrar fichas antiguas (string) a arrays
+      for (const trim of ['1','2','3']) {
+        if (!data.fichas[trim]) data.fichas[trim] = {};
+        for (const id in data.fichas[trim]) {
+          const val = data.fichas[trim][id];
+          if (typeof val === 'string' && val) {
+            data.fichas[trim][id] = [val];
+          } else if (!Array.isArray(val)) {
+            data.fichas[trim][id] = [];
+          }
+        }
+      }
       return;
     } catch(e) {}
   }
@@ -401,10 +413,18 @@ function normalize(str) {
   return (str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
+function getFichasList(trim, studentId) {
+  const list = data.fichas[trim] && data.fichas[trim][String(studentId)];
+  if (!list) return [];
+  if (Array.isArray(list)) return list;
+  if (typeof list === 'string' && list) return [list];
+  return [];
+}
+
 function getCurrentPoints(studentId) {
   const trim = data.currentTrimestre || "1";
-  const has = data.fichas[trim] && data.fichas[trim][String(studentId)];
-  return has ? 0.25 : 0;
+  const list = getFichasList(trim, studentId);
+  return list.length * 0.25;
 }
 
 function setCurrentTrimestre(val) {
@@ -439,13 +459,17 @@ function renderAlumnos() {
   const html = filtered.map(s => {
     const hasLoan = !!s.prestamo_libro;
     const trim = data.currentTrimestre || "1";
-    const hasFicha = !!(data.fichas[trim] && data.fichas[trim][String(s.id)]);
+    const fichasList = getFichasList(trim, s.id);
     const loanHtml = hasLoan
       ? `<div class="loan-box"><strong>📖 ${s.prestamo_libro}</strong><br><small>${s.prestamo_fecha || 'sin fecha'}</small></div>`
       : `<div class="loan-box empty">No tiene libro prestado</div>`;
 
     const points = getCurrentPoints(s.id);
-    const pointsHtml = `<div class="points-box">Fichas de lectura (${data.currentTrimestre}º trim.): <strong>${points.toFixed(2)} pts</strong></div>`;
+    const pointsHtml = `<div class="points-box">Fichas de lectura (${data.currentTrimestre}º trim.): <strong>${points.toFixed(2)} pts</strong> (${fichasList.length} ficha${fichasList.length !== 1 ? 's' : ''})</div>`;
+
+    const fichasHtml = fichasList.length
+      ? `<ul class="books-list">${fichasList.map((f, i) => `<li><span>📄 ${f}</span> <button class="btn btn-danger btn-sm" onclick="removeFicha(${s.id}, ${i})" title="Quitar esta ficha">✕</button></li>`).join('')}</ul>`
+      : `<p style="color:var(--muted);font-size:0.9rem;margin:0.5rem 0;">Sin fichas en este trimestre</p>`;
 
     const booksHtml = s.aportados.length
       ? `<ul class="books-list">${s.aportados.map((b, i) => `<li><span>${b}</span> <button class="btn btn-danger btn-sm" onclick="removeBook(${s.id}, ${i})" title="Quitar este libro">✕</button></li>`).join('')}</ul>`
@@ -456,6 +480,8 @@ function renderAlumnos() {
         <h3>${s.id}. ${s.nombre} ${s.apellidos}</h3>
         ${loanHtml}
         ${pointsHtml}
+        <div style="font-size:0.9rem;color:var(--muted);margin-top:0.5rem;"><strong>Fichas entregadas (${fichasList.length}):</strong></div>
+        ${fichasHtml}
         <div style="font-size:0.9rem;color:var(--muted);margin-top:0.5rem;"><strong>Libros aportados (${s.aportados.length}):</strong></div>
         ${booksHtml}
         <div class="actions">
@@ -464,9 +490,7 @@ function renderAlumnos() {
                <button class="btn btn-outline" onclick="openLoan(${s.id})">Cambiar libro</button>`
             : `<button class="btn btn-primary" onclick="openLoan(${s.id})">Prestar libro</button>`}
           <button class="btn btn-success" onclick="openAddBook(${s.id})">+ Aportar libro</button>
-          ${hasFicha
-            ? `<button class="btn btn-outline" onclick="removeFicha(${s.id})">Quitar ficha</button>`
-            : `<button class="btn btn-primary" onclick="openAddFicha(${s.id})">+ Añadir ficha</button>`}
+          <button class="btn btn-primary" onclick="openAddFicha(${s.id})">+ Añadir ficha</button>
         </div>
       </div>
     `;
@@ -509,11 +533,11 @@ function renderFichas() {
   const current = data.currentTrimestre || "1";
   let summaryHtml = `<div class="summary-box ${current ? 'current-trim' : ''}"><h3 style="margin-top:0;">Nota de fichas del trimestre actual (${current}º)</h3>
   <p style="margin:0.3rem 0 0.8rem; color:var(--muted);">Cada ficha entregada vale <strong>0,25 puntos</strong></p>
-  <table class="ficha-table"><thead><tr><th>#</th><th>Alumno</th><th>Ficha entregada</th><th>Puntos</th></tr></thead><tbody>`;
+  <table class="ficha-table"><thead><tr><th>#</th><th>Alumno</th><th>Nº fichas</th><th>Puntos</th></tr></thead><tbody>`;
   data.students.forEach(s => {
-    const has = data.fichas[current] && data.fichas[current][String(s.id)];
-    const pts = has ? 0.25 : 0;
-    summaryHtml += `<tr><td>${s.id}</td><td>${s.nombre} ${s.apellidos}</td><td>${has ? '<span class="badge badge-yes">Sí</span>' : '<span class="badge badge-no">No</span>'}</td><td><strong>${pts.toFixed(2)}</strong></td></tr>`;
+    const list = getFichasList(current, s.id);
+    const pts = list.length * 0.25;
+    summaryHtml += `<tr><td>${s.id}</td><td>${s.nombre} ${s.apellidos}</td><td>${list.length ? '<span class="badge badge-yes">' + list.length + '</span>' : '<span class="badge badge-no">0</span>'}</td><td><strong>${pts.toFixed(2)}</strong></td></tr>`;
   });
   summaryHtml += '</tbody></table></div>';
 
@@ -523,20 +547,21 @@ function renderFichas() {
     const delivered = Object.keys(fichas).length;
     const isCurrent = trim === current;
     html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-      <h3 style="margin:0;">Fichas de lectura · ${trim}er Trimestre ${isCurrent ? '<span class="badge badge-yes">ACTUAL</span>' : ''} <small style="color:var(--muted);">(${delivered} entregadas)</small></h3>
+      <h3 style="margin:0;">Fichas de lectura · ${trim}er Trimestre ${isCurrent ? '<span class="badge badge-yes">ACTUAL</span>' : ''} <small style="color:var(--muted);">(${delivered} alumnos con fichas)</small></h3>
       <button class="btn btn-danger btn-sm" onclick="resetTrimestre('${trim}')">🔄 Reset trimestre</button>
     </div>
     <table class="ficha-table">
-      <thead><tr><th>#</th><th>Alumno</th><th>Libro de la ficha</th><th>Estado</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>Alumno</th><th>Libros de las fichas</th><th>Estado</th><th></th></tr></thead>
       <tbody>`;
     data.students.forEach(s => {
-      const book = fichas[String(s.id)];
+      const list = getFichasList(trim, s.id);
+      const books = list.length ? list.map((b,i) => `${b} <button class="btn btn-outline btn-sm" onclick="removeFichaFromTrim('${trim}', ${s.id}, ${i})">✕</button>`).join('<br>') : '—';
       html += `<tr>
         <td>${s.id}</td>
         <td>${s.nombre} ${s.apellidos}</td>
-        <td>${book || '—'}</td>
-        <td>${book ? '<span class="badge badge-yes">Entregada</span>' : '<span class="badge badge-no">Pendiente</span>'}</td>
-        <td>${book ? `<button class="btn btn-outline btn-sm" onclick="clearFicha('${trim}', ${s.id})">Quitar</button>` : ''}</td>
+        <td>${books}</td>
+        <td>${list.length ? '<span class="badge badge-yes">' + list.length + ' ficha(s)</span>' : '<span class="badge badge-no">Pendiente</span>'}</td>
+        <td></td>
       </tr>`;
     });
     html += '</tbody></table>';
@@ -624,17 +649,46 @@ function saveFicha() {
   if (!title) { alert('Escribe el título del libro de la ficha'); return; }
   const trim = data.currentTrimestre || "1";
   if (!data.fichas[trim]) data.fichas[trim] = {};
-  data.fichas[trim][String(currentStudentId)] = title;
+  const key = String(currentStudentId);
+  let list = data.fichas[trim][key];
+  if (!Array.isArray(list)) {
+    list = (typeof list === 'string' && list) ? [list] : [];
+  }
+  list.push(title);
+  data.fichas[trim][key] = list;
   saveData();
   closeModal();
   renderAll();
 }
 
-function removeFicha(id) {
+function removeFichaFromTrim(trim, id, index) {
+  const key = String(id);
+  if (!data.fichas[trim] || !data.fichas[trim][key]) return;
+  let list = data.fichas[trim][key];
+  if (!Array.isArray(list)) list = [list];
+  if (index < 0 || index >= list.length) return;
+  if (confirm('¿Quitar esta ficha?')) {
+    list.splice(index, 1);
+    if (list.length === 0) delete data.fichas[trim][key];
+    else data.fichas[trim][key] = list;
+    saveData();
+    renderAll();
+  }
+}
+function removeFicha(id, index) {
   const trim = data.currentTrimestre || "1";
-  if (!data.fichas[trim] || !data.fichas[trim][String(id)]) return;
-  if (confirm('¿Quitar la ficha de este alumno en el trimestre actual? Se restarán 0,25 puntos.')) {
-    delete data.fichas[trim][String(id)];
+  const key = String(id);
+  if (!data.fichas[trim] || !data.fichas[trim][key]) return;
+  let list = data.fichas[trim][key];
+  if (!Array.isArray(list)) list = [list];
+  if (index < 0 || index >= list.length) return;
+  if (confirm('¿Quitar esta ficha? Se restarán 0,25 puntos.')) {
+    list.splice(index, 1);
+    if (list.length === 0) {
+      delete data.fichas[trim][key];
+    } else {
+      data.fichas[trim][key] = list;
+    }
     saveData();
     renderAll();
   }
@@ -707,9 +761,9 @@ function exportCSV() {
   data.students.forEach(s => {
     const trim = data.currentTrimestre || '1';
     const pts = getCurrentPoints(s.id).toFixed(2);
-    const f1 = (data.fichas['1'] && data.fichas['1'][String(s.id)]) || '';
-    const f2 = (data.fichas['2'] && data.fichas['2'][String(s.id)]) || '';
-    const f3 = (data.fichas['3'] && data.fichas['3'][String(s.id)]) || '';
+    const f1 = getFichasList('1', s.id).join(' | ');
+    const f2 = getFichasList('2', s.id).join(' | ');
+    const f3 = getFichasList('3', s.id).join(' | ');
     const aportados = (s.aportados || []).join(' | ');
 
     const row = [
