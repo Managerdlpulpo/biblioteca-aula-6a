@@ -246,7 +246,8 @@
         <option value="3">3er Trimestre</option>
       </select>
     </label>
-    <button class="btn btn-outline" onclick="exportData()">⬇️ Exportar datos</button>
+    <button class="btn btn-outline" onclick="exportData()">⬇️ Exportar JSON</button>
+    <button class="btn btn-outline" onclick="exportCSV()">📊 Exportar CSV (Google Sheets)</button>
     <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">⬆️ Importar</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
     <button class="btn btn-danger" onclick="resetData()" style="margin-left:auto;">🔄 Restaurar datos originales</button>
@@ -695,6 +696,41 @@ function exportData() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'biblioteca_6a_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+}
+
+function exportCSV() {
+  // CSV principal: alumnos con préstamos, puntos y fichas
+  let csv = '\uFEFF'; // BOM for Excel/Google Sheets
+  csv += 'ID,Nombre,Apellidos,Préstamo Libro,Préstamo Fecha,Puntos Ficha Trimestre Actual,Ficha 1er Trim,Ficha 2º Trim,Ficha 3er Trim,Libros Aportados\n';
+
+  data.students.forEach(s => {
+    const trim = data.currentTrimestre || '1';
+    const pts = getCurrentPoints(s.id).toFixed(2);
+    const f1 = (data.fichas['1'] && data.fichas['1'][String(s.id)]) || '';
+    const f2 = (data.fichas['2'] && data.fichas['2'][String(s.id)]) || '';
+    const f3 = (data.fichas['3'] && data.fichas['3'][String(s.id)]) || '';
+    const aportados = (s.aportados || []).join(' | ');
+
+    const row = [
+      s.id,
+      '"' + (s.nombre || '').replace(/"/g, '""') + '"',
+      '"' + (s.apellidos || '').replace(/"/g, '""') + '"',
+      '"' + (s.prestamo_libro || '').replace(/"/g, '""') + '"',
+      '"' + (s.prestamo_fecha || '').replace(/"/g, '""') + '"',
+      pts,
+      '"' + f1.replace(/"/g, '""') + '"',
+      '"' + f2.replace(/"/g, '""') + '"',
+      '"' + f3.replace(/"/g, '""') + '"',
+      '"' + aportados.replace(/"/g, '""') + '"'
+    ].join(',');
+    csv += row + '\n';
+  });
+
+  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'biblioteca_6a_' + new Date().toISOString().slice(0,10) + '.csv';
   a.click();
 }
 
