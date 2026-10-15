@@ -250,7 +250,8 @@
     <button class="btn btn-outline" onclick="exportCSV()">📊 Exportar CSV (Google Sheets)</button>
     <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">⬆️ Importar</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
-    <button class="btn btn-danger" onclick="resetData()" style="margin-left:auto;">🔄 Restaurar datos originales</button>
+    <button class="btn btn-warning" onclick="resetData()">🔄 Restaurar datos 6ºA</button>
+    <button class="btn btn-danger" onclick="resetEmpty()" style="margin-left:auto;">🗑️ Vaciar todos los datos</button>
   </div>
 
   <div class="tabs">
@@ -472,7 +473,7 @@ function renderAlumnos() {
     `;
   }).join('');
 
-  document.getElementById('view-alumnos').innerHTML = `<div class="grid">${html || '<p>No se encontraron alumnos o libros que coincidan.</p>'}</div>`;
+  document.getElementById('view-alumnos').innerHTML = `<div class="grid">${html || '<p>No hay alumnos. Usa “Vaciar todos los datos” y luego importa o añade manualmente.</p>'}</div>`;
 }
 
 function renderCatalogo() {
@@ -762,6 +763,19 @@ function resetData() {
     localStorage.removeItem('biblioteca6a');
     loadData();
     renderAll();
+  }
+}
+
+function resetEmpty() {
+  if (confirm('¿VACIAR TODOS LOS DATOS?\n\nSe eliminarán todos los alumnos, préstamos, fichas y libros.\nEsta acción no se puede deshacer.\n\nIdeal para que otros cursos empiecen de cero.')) {
+    data = {
+      students: [],
+      fichas: {"1": {}, "2": {}, "3": {}},
+      currentTrimestre: "1"
+    };
+    saveData();
+    renderAll();
+    alert('Aplicación vaciada. Ahora puedes importar datos o añadir alumnos manualmente.');
   }
 }
 
