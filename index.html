@@ -293,6 +293,7 @@
     <input type="file" id="importCSV" accept=".csv,text/csv" style="display:none" onchange="importCSV(event)">
     <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">⬆️ Importar JSON</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+    <button class="btn btn-success" onclick="openAddStudent()">+ Nuevo alumno</button>
     <button class="btn btn-danger" onclick="resetEmpty()" style="margin-left:auto;">🗑️ Vaciar todos los datos</button>
   </div>
 
@@ -368,6 +369,29 @@
     <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
       <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-success" onclick="saveFicha()">Guardar ficha (+0,25 pts)</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Añadir alumno -->
+<div class="modal" id="modalNewStudent">
+  <div class="modal-content">
+    <h3>Añadir nuevo alumno</h3>
+    <div class="form-group">
+      <label>Nombre</label>
+      <input type="text" id="newStudentNombre" placeholder="Nombre">
+    </div>
+    <div class="form-group">
+      <label>Apellidos</label>
+      <input type="text" id="newStudentApellidos" placeholder="Apellidos">
+    </div>
+    <div class="form-group">
+      <label>Libros aportados (opcional, separados por | )</label>
+      <input type="text" id="newStudentBooks" placeholder="Ej: Libro 1 | Libro 2 | Libro 3">
+    </div>
+    <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-success" onclick="saveNewStudent()">Crear alumno</button>
     </div>
   </div>
 </div>
@@ -569,7 +593,7 @@ function renderAlumnos() {
     `;
   }).join('');
 
-  document.getElementById('view-alumnos').innerHTML = `<div class="grid">${html || '<p>No hay alumnos. Usa “Vaciar todos los datos” y luego importa o añade manualmente.</p>'}</div>`;
+  document.getElementById('view-alumnos').innerHTML = `<div class="grid">${html || '<div style="grid-column:1/-1; text-align:center; padding:3rem;"><p style="font-size:1.1rem; color:var(--muted); margin-bottom:1rem;">No hay alumnos todavía.</p><button class="btn btn-success" onclick="openAddStudent()">+ Añadir el primer alumno</button></div>'}</div>`;
 }
 
 function renderCatalogo() {
@@ -1015,6 +1039,47 @@ function parseCSVLine(line) {
   }
   result.push(current);
   return result;
+}
+
+function openAddStudent() {
+  document.getElementById('newStudentNombre').value = '';
+  document.getElementById('newStudentApellidos').value = '';
+  document.getElementById('newStudentBooks').value = '';
+  document.getElementById('modalNewStudent').classList.add('show');
+  document.getElementById('newStudentNombre').focus();
+}
+
+function saveNewStudent() {
+  const nombre = document.getElementById('newStudentNombre').value.trim();
+  const apellidos = document.getElementById('newStudentApellidos').value.trim();
+  const booksRaw = document.getElementById('newStudentBooks').value.trim();
+
+  if (!nombre || !apellidos) {
+    alert('Escribe al menos el nombre y los apellidos');
+    return;
+  }
+
+  const aportados = booksRaw
+    ? booksRaw.split('|').map(b => b.trim()).filter(Boolean)
+    : [];
+
+  // Generate next ID
+  const maxId = data.students.reduce((m, s) => Math.max(m, s.id || 0), 0);
+  const newId = maxId + 1;
+
+  const newStudent = {
+    id: newId,
+    nombre,
+    apellidos,
+    prestamo_libro: null,
+    prestamo_fecha: null,
+    aportados
+  };
+
+  data.students.push(newStudent);
+  saveData();
+  closeModal();
+  renderAll();
 }
 
 // Init
