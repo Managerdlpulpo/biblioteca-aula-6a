@@ -269,8 +269,8 @@
   </div>
 </div>
 <header>
-  <h1>📚 Biblioteca de Aula · 6º A</h1>
-  <p>Curso 2026-2027 · Gestión de préstamos y aportaciones</p>
+  <h1 id="headerTitle">📚 Biblioteca de Aula</h1>
+  <p id="headerSubtitle">Gestión de préstamos y aportaciones</p>
 </header>
 
 <div class="container">
@@ -293,6 +293,7 @@
     <input type="file" id="importCSV" accept=".csv,text/csv" style="display:none" onchange="importCSV(event)">
     <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">⬆️ Importar JSON</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+    <button class="btn btn-outline" onclick="editClassName()">✏️ Nombre de la clase</button>
     <button class="btn btn-success" onclick="openAddStudent()">+ Nuevo alumno</button>
     <button class="btn btn-danger" onclick="resetEmpty()" style="margin-left:auto;">🗑️ Vaciar todos los datos</button>
   </div>
@@ -433,6 +434,7 @@ document.getElementById("loginPassword").addEventListener("keydown", (e) => {
 
 // ========== DATOS INICIALES ==========
 const INITIAL_DATA = {
+  "className": "Biblioteca de Aula",
   "students": [],
   "fichas": {
     "1": {},
@@ -455,6 +457,7 @@ function loadData() {
       data = JSON.parse(saved);
       if (!data.currentTrimestre) data.currentTrimestre = "1";
       if (!data.fichas) data.fichas = {"1":{},"2":{},"3":{}};
+      if (!data.className) data.className = "Biblioteca de Aula";
       // Migrar fichas antiguas (string) a arrays
       for (const trim of ['1','2','3']) {
         if (!data.fichas[trim]) data.fichas[trim] = {};
@@ -655,9 +658,26 @@ function renderFichas() {
   document.getElementById('view-fichas').innerHTML = html;
 }
 
+function updateHeader() {
+  const name = data.className || "Biblioteca de Aula";
+  document.getElementById('headerTitle').textContent = "📚 " + name;
+  document.title = name + " · Gestión de Préstamos";
+}
+
+function editClassName() {
+  const current = data.className || "Biblioteca de Aula";
+  const newName = prompt("Nombre de la biblioteca / clase:", current);
+  if (newName && newName.trim()) {
+    data.className = newName.trim();
+    saveData();
+    updateHeader();
+  }
+}
+
 function renderAll() {
   const sel = document.getElementById('trimSelect');
   if (sel) sel.value = data.currentTrimestre || "1";
+  updateHeader();
   renderStats();
   renderAlumnos();
   renderCatalogo();
@@ -1079,6 +1099,17 @@ function initApp() {
   }
   loadData();
   renderAll();
+  // Si es la primera vez (sin nombre personalizado y sin alumnos), preguntar
+  if ((!data.className || data.className === "Biblioteca de Aula") && data.students.length === 0) {
+    setTimeout(() => {
+      const name = prompt("¿Cómo se llama tu biblioteca de aula?\nEjemplo: Biblioteca de Aula 5º B", "Biblioteca de Aula");
+      if (name && name.trim() && name.trim() !== "Biblioteca de Aula") {
+        data.className = name.trim();
+        saveData();
+        updateHeader();
+      }
+    }, 400);
+  }
 }
 
 // Check if already authenticated in this session
