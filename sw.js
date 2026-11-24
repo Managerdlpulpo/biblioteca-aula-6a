@@ -1,4 +1,4 @@
-const CACHE_NAME = 'biblioteca-6a-v1';
+const CACHE_NAME = 'biblioteca-6a-v3';
 const urlsToCache = [
   '/',
   '/index.html',

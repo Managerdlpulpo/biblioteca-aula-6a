@@ -129,8 +129,6 @@
     font-size: 0.95rem;
   }
   .loan-box.empty { background: #f1f5f9; border-left-color: #94a3b8; }
-  .loan-box.overdue { background: #fee2e2; border-left-color: #dc2626; }
-  .loan-box.warning { background: #ffedd5; border-left-color: #ea580c; }
   .points-box {
     background: #ecfdf5;
     border-left: 4px solid #10b981;
@@ -288,7 +286,6 @@
         <option value="3">3er Trimestre</option>
       </select>
     </label>
-    <button class="btn btn-outline" id="filterLoansBtn" onclick="toggleLoanFilter()">🔍 Solo con préstamo</button>
     <button class="btn btn-outline" onclick="exportData()">⬇️ Exportar JSON</button>
     <button class="btn btn-outline" onclick="exportCSV()">📊 Exportar CSV</button>
     <button class="btn btn-outline" onclick="downloadTemplate()">📥 Descargar plantilla CSV</button>
@@ -325,8 +322,8 @@
       <input type="text" id="modalBook" placeholder="Ej: Los Futbolísimos 20">
     </div>
     <div class="form-group">
-      <label>Fecha de préstamo</label>
-      <input type="date" id="modalDate">
+      <label>Fecha de préstamo (o estado)</label>
+      <input type="text" id="modalDate" placeholder="2026-10-14 o 'ficha'">
     </div>
     <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
       <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
@@ -452,7 +449,6 @@ let data = null;
 let currentStudentId = null;
 let searchTerm = "";
 let activeTab = "alumnos";
-let onlyWithLoan = false;
 
 function loadData() {
   const saved = localStorage.getItem('biblioteca6a');
@@ -474,10 +470,6 @@ function loadData() {
           }
         }
       }
-      // Asegurar historial de préstamos
-      data.students.forEach(s => {
-        if (!s.loanHistory) s.loanHistory = [];
-      });
       return;
     } catch(e) {}
   }
@@ -517,30 +509,15 @@ function setCurrentTrimestre(val) {
   renderAll();
 }
 
-function getLoanDays(fecha) {
-  if (!fecha) return 0;
-  const loanDate = new Date(fecha);
-  if (isNaN(loanDate.getTime())) return 0;
-  const today = new Date();
-  const diff = Math.floor((today - loanDate) / (1000 * 60 * 60 * 24));
-  return Math.max(0, diff);
-}
-
 // ========== RENDER ==========
 function renderStats() {
   const totalStudents = data.students.length;
   const activeLoans = data.students.filter(s => s.prestamo_libro).length;
   const totalBooks = new Set(data.students.flatMap(s => s.aportados)).size;
   const totalAportados = data.students.reduce((sum, s) => sum + s.aportados.length, 0);
-  const overdue = data.students.filter(s => {
-    if (!s.prestamo_libro) return false;
-    const days = getLoanDays(s.prestamo_fecha);
-    return days > 14;
-  }).length;
   document.getElementById('stats').innerHTML = `
     <div class="stat"><div class="num">${totalStudents}</div><div class="label">Alumnos</div></div>
     <div class="stat"><div class="num">${activeLoans}</div><div class="label">Préstamos activos</div></div>
-    <div class="stat"><div class="num" style="color:${overdue>0?'#dc2626':'inherit'}">${overdue}</div><div class="label">Préstamos >14 días</div></div>
     <div class="stat"><div class="num">${totalBooks}</div><div class="label">Títulos en biblioteca</div></div>
     <div class="stat"><div class="num">${totalAportados}</div><div class="label">Libros aportados</div></div>
   `;
@@ -549,7 +526,6 @@ function renderStats() {
 function renderAlumnos() {
   const term = normalize(searchTerm);
   const filtered = data.students.filter(s => {
-    if (onlyWithLoan && !s.prestamo_libro) return false;
     const full = normalize(s.nombre + ' ' + s.apellidos);
     const books = normalize(s.aportados.join(' ') + ' ' + (s.prestamo_libro || ''));
     return !term || full.includes(term) || books.includes(term);
@@ -559,57 +535,571 @@ function renderAlumnos() {
     const hasLoan = !!s.prestamo_libro;
     const trim = data.currentTrimestre || "1";
     const fichasList = getFichasList(trim, s.id);
+    const loanHtml = hasLoan
+      ? `<div class="loan-box"><strong>📖 ${s.prestamo_libro}</strong><br><small>${s.prestamo_fecha || 'sin fecha'}</small></div>`
+      : `<div class="loan-box empty">No tiene libro prestado</div>`;
+
     const points = getCurrentPoints(s.id);
-    const days = getLoanDays(s.prestamo_fecha);
-    let loanClass = 'empty';
-    let loanText = 'Sin préstamo activo';
-    if (hasLoan) {
-      loanClass = days > 14 ? 'overdue' : (days > 7 ? 'warning' : '');
-      loanText = `${s.prestamo_libro}<br><small>Desde ${s.prestamo_fecha || '?'} · ${days} días</small>`;
-    }
-    const historyHtml = (s.loanHistory && s.loanHistory.length) 
-      ? `<div style="font-size:0.8rem; color:#64748b; margin-top:0.5rem;"><strong>Últimos:</strong> ${s.loanHistory.slice(-3).reverse().map(h => h.libro).join(', ')}</div>`
-      : '';
+    const pointsHtml = `<div class="points-box">Fichas de lectura (${data.currentTrimestre}º trim.): <strong>${points.toFixed(2)} pts</strong> (${fichasList.length} ficha${fichasList.length !== 1 ? 's' : ''})</div>`;
+
+    const fichasHtml = fichasList.length
+      ? `<ul class="books-list">${fichasList.map((f, i) => `<li><span>📄 ${f}</span> <button class="btn btn-danger btn-sm" onclick="removeFicha(${s.id}, ${i})" title="Quitar esta ficha">✕</button></li>`).join('')}</ul>`
+      : `<p style="color:var(--muted);font-size:0.9rem;margin:0.5rem 0;">Sin fichas en este trimestre</p>`;
+
+    const booksHtml = s.aportados.length
+      ? `<ul class="books-list">${s.aportados.map((b, i) => `<li><span>${b}</span> <button class="btn btn-danger btn-sm" onclick="removeBook(${s.id}, ${i})" title="Quitar este libro">✕</button></li>`).join('')}</ul>`
+      : `<p style="color:var(--muted);font-size:0.9rem;margin:0.5rem 0;">No ha aportado libros aún</p>`;
+
     return `
       <div class="card">
-        <h3>${s.nombre} ${s.apellidos}</h3>
-        <div class="loan-box ${loanClass}">${loanText}</div>
-        ${historyHtml}
-        <div class="points-box">${points.toFixed(2)} pts (${fichasList.length} fichas)</div>
-        <ul class="books-list">
-          ${s.aportados.map(b => `<li>${b}</li>`).join('') || '<li style="color:#94a3b8;">Sin libros aportados</li>'}
-        </ul>
+        <h3>${s.id}. ${s.nombre} ${s.apellidos}</h3>
+        ${loanHtml}
+        ${pointsHtml}
+        <div style="font-size:0.9rem;color:var(--muted);margin-top:0.5rem;"><strong>Fichas entregadas (${fichasList.length}):</strong></div>
+        ${fichasHtml}
+        <div style="font-size:0.9rem;color:var(--muted);margin-top:0.5rem;"><strong>Libros aportados (${s.aportados.length}):</strong></div>
+        ${booksHtml}
         <div class="actions">
-          ${hasLoan 
-            ? `<button class="btn btn-warning btn-sm" onclick="openReturn(${s.id})">Devolver</button>`
-            : `<button class="btn btn-primary btn-sm" onclick="openLoan(${s.id})">Prestar</button>`}
-          <button class="btn btn-outline btn-sm" onclick="openAddBook(${s.id})">+ Libro</button>
-          <button class="btn btn-outline btn-sm" onclick="openAddFicha(${s.id})">+ Ficha</button>
+          ${hasLoan
+            ? `<button class="btn btn-warning" onclick="openReturn(${s.id})">Devolver</button>
+               <button class="btn btn-outline" onclick="openLoan(${s.id})">Cambiar libro</button>`
+            : `<button class="btn btn-primary" onclick="openLoan(${s.id})">Prestar libro</button>`}
+          <button class="btn btn-success" onclick="openAddBook(${s.id})">+ Aportar libro</button>
+          <button class="btn btn-primary" onclick="openAddFicha(${s.id})">+ Añadir ficha</button>
         </div>
       </div>
     `;
   }).join('');
 
-  document.getElementById('view-alumnos').innerHTML = html || '<p>No hay alumnos que mostrar.</p>';
+  document.getElementById('view-alumnos').innerHTML = `<div class="grid">${html || '<div style="grid-column:1/-1; text-align:center; padding:3rem;"><p style="font-size:1.1rem; color:var(--muted); margin-bottom:1rem;">No hay alumnos todavía.</p><button class="btn btn-success" onclick="openAddStudent()">+ Añadir el primer alumno</button></div>'}</div>`;
 }
 
-// ... (el resto de las funciones de render, modales, etc. se mantienen iguales que en el original, con las mejoras)
+function renderCatalogo() {
+  const term = normalize(searchTerm);
+  const bookMap = {};
+  const loanedBooks = new Set();
 
-function toggleLoanFilter() {
-  onlyWithLoan = !onlyWithLoan;
-  const btn = document.getElementById('filterLoansBtn');
-  btn.textContent = onlyWithLoan ? '🔍 Mostrar todos' : '🔍 Solo con préstamo';
-  btn.style.background = onlyWithLoan ? '#fef3c7' : '';
+  data.students.forEach(s => {
+    if (s.prestamo_libro) {
+      loanedBooks.add(s.prestamo_libro.trim());
+    }
+    s.aportados.forEach(book => {
+      if (!bookMap[book]) bookMap[book] = [];
+      bookMap[book].push(s.nombre + ' ' + s.apellidos);
+    });
+  });
+
+  let books = Object.keys(bookMap).sort((a,b) => a.localeCompare(b, 'es'));
+  if (term) {
+    books = books.filter(b => normalize(b).includes(term) || bookMap[b].some(owner => normalize(owner).includes(term)));
+  }
+
+  const html = books.map(book => {
+    const owners = bookMap[book];
+    const isLoaned = loanedBooks.has(book.trim());
+    const statusBadge = isLoaned
+      ? `<span class="badge badge-no">No disponible</span>`
+      : `<span class="badge badge-yes">Disponible</span>`;
+    const who = isLoaned
+      ? data.students.find(s => s.prestamo_libro && s.prestamo_libro.trim() === book.trim())
+      : null;
+    const extra = who ? `<br><small style="color:#dc2626;">Prestado a: ${who.nombre} ${who.apellidos}</small>` : '';
+
+    return `<div class="catalog-item">
+      <div><strong>${book}</strong><br><small style="color:var(--muted);">Aportado por: ${owners.join(', ')}</small>${extra}</div>
+      <div style="text-align:right;">${statusBadge}<br><span class="badge" style="background:#f1f5f9;color:#64748b;margin-top:4px;">${owners.length}</span></div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('view-catalogo').innerHTML = `
+    <h2 style="margin-top:0;">Catálogo de libros de la biblioteca</h2>
+    <p style="color:var(--muted);">${books.length} títulos ${term ? 'que coinciden' : 'únicos aportados por los alumnos'}</p>
+    ${html || '<p>No hay libros que coincidan con la búsqueda.</p>'}
+  `;
+}
+
+function renderFichas() {
+  const current = data.currentTrimestre || "1";
+  let summaryHtml = `<div class="summary-box ${current ? 'current-trim' : ''}"><h3 style="margin-top:0;">Nota de fichas del trimestre actual (${current}º)</h3>
+  <p style="margin:0.3rem 0 0.8rem; color:var(--muted);">Cada ficha entregada vale <strong>0,25 puntos</strong></p>
+  <table class="ficha-table"><thead><tr><th>#</th><th>Alumno</th><th>Nº fichas</th><th>Puntos</th></tr></thead><tbody>`;
+  data.students.forEach(s => {
+    const list = getFichasList(current, s.id);
+    const pts = list.length * 0.25;
+    summaryHtml += `<tr><td>${s.id}</td><td>${s.nombre} ${s.apellidos}</td><td>${list.length ? '<span class="badge badge-yes">' + list.length + '</span>' : '<span class="badge badge-no">0</span>'}</td><td><strong>${pts.toFixed(2)}</strong></td></tr>`;
+  });
+  summaryHtml += '</tbody></table></div>';
+
+  let html = summaryHtml;
+  for (const trim of ['1','2','3']) {
+    const fichas = data.fichas[trim] || {};
+    const delivered = Object.keys(fichas).length;
+    const isCurrent = trim === current;
+    html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+      <h3 style="margin:0;">Fichas de lectura · ${trim}er Trimestre ${isCurrent ? '<span class="badge badge-yes">ACTUAL</span>' : ''} <small style="color:var(--muted);">(${delivered} alumnos con fichas)</small></h3>
+      <button class="btn btn-danger btn-sm" onclick="resetTrimestre('${trim}')">🔄 Reset trimestre</button>
+    </div>
+    <table class="ficha-table">
+      <thead><tr><th>#</th><th>Alumno</th><th>Libros de las fichas</th><th>Estado</th><th></th></tr></thead>
+      <tbody>`;
+    data.students.forEach(s => {
+      const list = getFichasList(trim, s.id);
+      const books = list.length ? list.map((b,i) => `${b} <button class="btn btn-outline btn-sm" onclick="removeFichaFromTrim('${trim}', ${s.id}, ${i})">✕</button>`).join('<br>') : '—';
+      html += `<tr>
+        <td>${s.id}</td>
+        <td>${s.nombre} ${s.apellidos}</td>
+        <td>${books}</td>
+        <td>${list.length ? '<span class="badge badge-yes">' + list.length + ' ficha(s)</span>' : '<span class="badge badge-no">Pendiente</span>'}</td>
+        <td></td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+  }
+  document.getElementById('view-fichas').innerHTML = html;
+}
+
+function updateHeader() {
+  const name = data.className || "Biblioteca de Aula";
+  document.getElementById('headerTitle').textContent = "📚 " + name;
+  document.title = name + " · Gestión de Préstamos";
+}
+
+function editClassName() {
+  const current = data.className || "Biblioteca de Aula";
+  const newName = prompt("Nombre de la biblioteca / clase:", current);
+  if (newName && newName.trim()) {
+    data.className = newName.trim();
+    saveData();
+    updateHeader();
+  }
+}
+
+function renderAll() {
+  const sel = document.getElementById('trimSelect');
+  if (sel) sel.value = data.currentTrimestre || "1";
+  updateHeader();
+  renderStats();
   renderAlumnos();
+  renderCatalogo();
+  renderFichas();
 }
 
-// Init (igual)
+// ========== INTERACCIONES ==========
+function openLoan(id) {
+  currentStudentId = id;
+  const s = getStudent(id);
+  document.getElementById('modalTitle').textContent = s.prestamo_libro ? 'Cambiar libro prestado' : 'Prestar libro';
+  document.getElementById('modalStudentName').textContent = s.nombre + ' ' + s.apellidos;
+  document.getElementById('modalBook').value = s.prestamo_libro || '';
+  document.getElementById('modalDate').value = s.prestamo_fecha || new Date().toISOString().slice(0,10);
+  document.getElementById('modalLoan').classList.add('show');
+  document.getElementById('modalBook').focus();
+}
+
+function openReturn(id) {
+  if (confirm('¿Devolver el libro y marcar como disponible?')) {
+    const s = getStudent(id);
+    s.prestamo_libro = null;
+    s.prestamo_fecha = null;
+    saveData();
+    renderAll();
+  }
+}
+
+function saveLoan() {
+  const s = getStudent(currentStudentId);
+  const book = document.getElementById('modalBook').value.trim();
+  const date = document.getElementById('modalDate').value.trim();
+  if (!book) { alert('Escribe el título del libro'); return; }
+  s.prestamo_libro = book;
+  s.prestamo_fecha = date || null;
+  saveData();
+  closeModal();
+  renderAll();
+}
+
+function openAddBook(id) {
+  currentStudentId = id;
+  const s = getStudent(id);
+  document.getElementById('modalAddStudent').textContent = s.nombre + ' ' + s.apellidos;
+  document.getElementById('modalAddTitle').value = '';
+  document.getElementById('modalAddBook').classList.add('show');
+  document.getElementById('modalAddTitle').focus();
+}
+
+function addContributedBook() {
+  const title = document.getElementById('modalAddTitle').value.trim();
+  if (!title) { alert('Escribe el título'); return; }
+  const s = getStudent(currentStudentId);
+  if (!s.aportados.includes(title)) {
+    s.aportados.push(title);
+  }
+  saveData();
+  closeModal();
+  renderAll();
+}
+
+function openAddFicha(id) {
+  currentStudentId = id;
+  const s = getStudent(id);
+  const trim = data.currentTrimestre || "1";
+  document.getElementById('modalFichaStudent').textContent = s.nombre + ' ' + s.apellidos;
+  document.getElementById('modalFichaTrim').textContent = trim + 'er Trimestre';
+  document.getElementById('modalFichaTitle').value = '';
+  document.getElementById('modalAddFicha').classList.add('show');
+  document.getElementById('modalFichaTitle').focus();
+}
+
+function saveFicha() {
+  const title = document.getElementById('modalFichaTitle').value.trim();
+  if (!title) { alert('Escribe el título del libro de la ficha'); return; }
+  const trim = data.currentTrimestre || "1";
+  if (!data.fichas[trim]) data.fichas[trim] = {};
+  const key = String(currentStudentId);
+  let list = data.fichas[trim][key];
+  if (!Array.isArray(list)) {
+    list = (typeof list === 'string' && list) ? [list] : [];
+  }
+  list.push(title);
+  data.fichas[trim][key] = list;
+  saveData();
+  closeModal();
+  renderAll();
+}
+
+function removeFichaFromTrim(trim, id, index) {
+  const key = String(id);
+  if (!data.fichas[trim] || !data.fichas[trim][key]) return;
+  let list = data.fichas[trim][key];
+  if (!Array.isArray(list)) list = [list];
+  if (index < 0 || index >= list.length) return;
+  if (confirm('¿Quitar esta ficha?')) {
+    list.splice(index, 1);
+    if (list.length === 0) delete data.fichas[trim][key];
+    else data.fichas[trim][key] = list;
+    saveData();
+    renderAll();
+  }
+}
+function removeFicha(id, index) {
+  const trim = data.currentTrimestre || "1";
+  const key = String(id);
+  if (!data.fichas[trim] || !data.fichas[trim][key]) return;
+  let list = data.fichas[trim][key];
+  if (!Array.isArray(list)) list = [list];
+  if (index < 0 || index >= list.length) return;
+  if (confirm('¿Quitar esta ficha? Se restarán 0,25 puntos.')) {
+    list.splice(index, 1);
+    if (list.length === 0) {
+      delete data.fichas[trim][key];
+    } else {
+      data.fichas[trim][key] = list;
+    }
+    saveData();
+    renderAll();
+  }
+}
+
+function removeBook(studentId, index) {
+  const s = getStudent(studentId);
+  if (confirm(`¿Quitar el libro "${s.aportados[index]}" de la biblioteca de este alumno?`)) {
+    s.aportados.splice(index, 1);
+    saveData();
+    renderAll();
+  }
+}
+
+function clearFicha(trim, studentId) {
+  if (!data.fichas[trim]) return;
+  if (confirm('¿Quitar esta ficha?')) {
+    delete data.fichas[trim][String(studentId)];
+    saveData();
+    renderAll();
+  }
+}
+
+function resetTrimestre(trim) {
+  if (confirm(`¿Resetear todas las fichas del ${trim}er trimestre? Esta acción no se puede deshacer.`)) {
+    data.fichas[trim] = {};
+    saveData();
+    renderAll();
+  }
+}
+
+function closeModal() {
+  document.querySelectorAll('.modal').forEach(m => m.classList.remove('show'));
+}
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    activeTab = tab.dataset.tab;
+    document.getElementById('view-alumnos').style.display = activeTab === 'alumnos' ? 'block' : 'none';
+    document.getElementById('view-catalogo').style.display = activeTab === 'catalogo' ? 'block' : 'none';
+    document.getElementById('view-fichas').style.display = activeTab === 'fichas' ? 'block' : 'none';
+  });
+});
+
+// Search
+document.getElementById('search').addEventListener('input', (e) => {
+  searchTerm = e.target.value.trim();
+  if (activeTab === 'alumnos') renderAlumnos();
+  else if (activeTab === 'catalogo') renderCatalogo();
+  else renderFichas();
+});
+
+// Export / Import / Reset
+function exportData() {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'biblioteca_6a_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+}
+
+function exportCSV() {
+  // CSV principal: alumnos con préstamos, puntos y fichas
+  let csv = '\uFEFF'; // BOM for Excel/Google Sheets
+  csv += 'ID,Nombre,Apellidos,Préstamo Libro,Préstamo Fecha,Puntos Ficha Trimestre Actual,Ficha 1er Trim,Ficha 2º Trim,Ficha 3er Trim,Libros Aportados\n';
+
+  data.students.forEach(s => {
+    const trim = data.currentTrimestre || '1';
+    const pts = getCurrentPoints(s.id).toFixed(2);
+    const f1 = getFichasList('1', s.id).join(' | ');
+    const f2 = getFichasList('2', s.id).join(' | ');
+    const f3 = getFichasList('3', s.id).join(' | ');
+    const aportados = (s.aportados || []).join(' | ');
+
+    const row = [
+      s.id,
+      '"' + (s.nombre || '').replace(/"/g, '""') + '"',
+      '"' + (s.apellidos || '').replace(/"/g, '""') + '"',
+      '"' + (s.prestamo_libro || '').replace(/"/g, '""') + '"',
+      '"' + (s.prestamo_fecha || '').replace(/"/g, '""') + '"',
+      pts,
+      '"' + f1.replace(/"/g, '""') + '"',
+      '"' + f2.replace(/"/g, '""') + '"',
+      '"' + f3.replace(/"/g, '""') + '"',
+      '"' + aportados.replace(/"/g, '""') + '"'
+    ].join(',');
+    csv += row + '\n';
+  });
+
+  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'biblioteca_6a_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
+function importData(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const imported = JSON.parse(reader.result);
+      if (imported.students && Array.isArray(imported.students)) {
+        data = imported;
+        if (!data.fichas) data.fichas = {"1":{},"2":{},"3":{}};
+        if (!data.currentTrimestre) data.currentTrimestre = "1";
+        saveData();
+        renderAll();
+        alert('Datos importados correctamente');
+      } else {
+        alert('Formato de archivo no válido');
+      }
+    } catch(e) { alert('Error al leer el archivo'); }
+  };
+  reader.readAsText(file);
+  ev.target.value = '';
+}
+
+function resetEmpty() {
+  if (confirm('¿VACIAR TODOS LOS DATOS?\n\nSe eliminarán todos los alumnos, préstamos, fichas y libros.\nEsta acción no se puede deshacer.\n\nIdeal para que otros cursos empiecen de cero.')) {
+    data = {
+      students: [],
+      fichas: {"1": {}, "2": {}, "3": {}},
+      currentTrimestre: "1"
+    };
+    saveData();
+    renderAll();
+    alert('Aplicación vaciada. Ahora puedes importar datos o añadir alumnos manualmente.');
+  }
+}
+
+// ========== PLANTILLA CSV ==========
+function downloadTemplate() {
+  const header = 'ID,Nombre,Apellidos,Prestamo_Libro,Prestamo_Fecha,Libros_Aportados,Fichas_1er,Fichas_2o,Fichas_3er\n';
+  const example1 = '1,Ana,García López,,,"Libro 1 | Libro 2",Diario de Greg 5,,\n';
+  const example2 = '2,Luis,Martín Pérez,Los Futbolísimos 20,2026-10-15,"Harry Potter 1 | Harry Potter 2",Los Once 1,Diario de Greg 4,\n';
+  const csv = '\uFEFF' + header + example1 + example2;
+  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'plantilla_biblioteca_aula.csv';
+  a.click();
+}
+
+function importCSV(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      let text = reader.result;
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // remove BOM
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { alert('El archivo está vacío o no tiene datos'); return; }
+
+      const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+      const idx = {
+        id: headers.indexOf('id'),
+        nombre: headers.indexOf('nombre'),
+        apellidos: headers.indexOf('apellidos'),
+        prestamo_libro: headers.findIndex(h => h.includes('prestamo') && h.includes('libro')),
+        prestamo_fecha: headers.findIndex(h => h.includes('prestamo') && h.includes('fecha')),
+        aportados: headers.findIndex(h => h.includes('aportado')),
+        f1: headers.findIndex(h => h.includes('ficha') && (h.includes('1') || h.includes('1er'))),
+        f2: headers.findIndex(h => h.includes('ficha') && (h.includes('2') || h.includes('2o') || h.includes('2º'))),
+        f3: headers.findIndex(h => h.includes('ficha') && (h.includes('3') || h.includes('3er')))
+      };
+
+      if (idx.nombre === -1 || idx.apellidos === -1) {
+        alert('La plantilla debe tener las columnas Nombre y Apellidos');
+        return;
+      }
+
+      const students = [];
+      const fichas = {"1": {}, "2": {}, "3": {}};
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCSVLine(lines[i]);
+        if (!cols.length) continue;
+        const id = idx.id >= 0 && cols[idx.id] ? parseInt(cols[idx.id]) : (i);
+        const nombre = (cols[idx.nombre] || '').trim();
+        const apellidos = (cols[idx.apellidos] || '').trim();
+        if (!nombre && !apellidos) continue;
+
+        const aportadosRaw = idx.aportados >= 0 ? (cols[idx.aportados] || '') : '';
+        const aportados = aportadosRaw.split('|').map(b => b.trim()).filter(Boolean);
+
+        const student = {
+          id: id || i,
+          nombre,
+          apellidos,
+          prestamo_libro: idx.prestamo_libro >= 0 ? (cols[idx.prestamo_libro] || '').trim() || null : null,
+          prestamo_fecha: idx.prestamo_fecha >= 0 ? (cols[idx.prestamo_fecha] || '').trim() || null : null,
+          aportados
+        };
+        students.push(student);
+
+        // Fichas
+        const addFichas = (trimKey, colIdx) => {
+          if (colIdx < 0) return;
+          const raw = (cols[colIdx] || '').trim();
+          if (!raw) return;
+          const list = raw.split('|').map(f => f.trim()).filter(Boolean);
+          if (list.length) fichas[trimKey][String(student.id)] = list;
+        };
+        addFichas('1', idx.f1);
+        addFichas('2', idx.f2);
+        addFichas('3', idx.f3);
+      }
+
+      if (students.length === 0) { alert('No se encontraron alumnos válidos'); return; }
+
+      if (confirm(`Se van a cargar ${students.length} alumnos. ¿Continuar? Se reemplazarán los datos actuales.`)) {
+        data = {
+          students,
+          fichas,
+          currentTrimestre: data.currentTrimestre || "1"
+        };
+        saveData();
+        renderAll();
+        alert('Plantilla importada correctamente');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error al leer el CSV. Asegúrate de usar la plantilla descargada.');
+    }
+  };
+  reader.readAsText(file, 'UTF-8');
+  ev.target.value = '';
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (c === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+function openAddStudent() {
+  document.getElementById('newStudentNombre').value = '';
+  document.getElementById('newStudentApellidos').value = '';
+  document.getElementById('newStudentBooks').value = '';
+  document.getElementById('modalNewStudent').classList.add('show');
+  document.getElementById('newStudentNombre').focus();
+}
+
+function saveNewStudent() {
+  const nombre = document.getElementById('newStudentNombre').value.trim();
+  const apellidos = document.getElementById('newStudentApellidos').value.trim();
+  const booksRaw = document.getElementById('newStudentBooks').value.trim();
+
+  if (!nombre || !apellidos) {
+    alert('Escribe al menos el nombre y los apellidos');
+    return;
+  }
+
+  const aportados = booksRaw
+    ? booksRaw.split('|').map(b => b.trim()).filter(Boolean)
+    : [];
+
+  // Generate next ID
+  const maxId = data.students.reduce((m, s) => Math.max(m, s.id || 0), 0);
+  const newId = maxId + 1;
+
+  const newStudent = {
+    id: newId,
+    nombre,
+    apellidos,
+    prestamo_libro: null,
+    prestamo_fecha: null,
+    aportados
+  };
+
+  data.students.push(newStudent);
+  saveData();
+  closeModal();
+  renderAll();
+}
+
+// Init
 function initApp() {
+  // Registrar Service Worker para PWA
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(err => console.log("SW error:", err));
   }
   loadData();
   renderAll();
+  // Si es la primera vez (sin nombre personalizado y sin alumnos), preguntar
   if ((!data.className || data.className === "Biblioteca de Aula") && data.students.length === 0) {
     setTimeout(() => {
       const name = prompt("¿Cómo se llama tu biblioteca de aula?\nEjemplo: Biblioteca de Aula 5º B", "Biblioteca de Aula");
@@ -622,6 +1112,7 @@ function initApp() {
   }
 }
 
+// Check if already authenticated in this session
 if (sessionStorage.getItem("biblioteca_auth") === "ok") {
   document.getElementById("loginOverlay").classList.add("hidden");
   initApp();
